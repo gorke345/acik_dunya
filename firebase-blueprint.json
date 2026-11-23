@@ -1,0 +1,111 @@
+{
+  "entities": {
+    "PlayerProfile": {
+      "title": "PlayerProfile",
+      "description": "Persistent open-world PvP character save record for an authenticated player.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the owner",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Chosen warrior name visible in the world",
+          "minLength": 2,
+          "maxLength": 24
+        },
+        "tunicColor": {
+          "type": "string",
+          "description": "Hex color for the warrior's cloak and tunic accent",
+          "minLength": 7,
+          "maxLength": 7,
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        "level": {
+          "type": "integer",
+          "description": "Character level (1-99)"
+        },
+        "xp": {
+          "type": "integer",
+          "description": "Current experience points"
+        },
+        "gold": {
+          "type": "integer",
+          "description": "Gold currency earned from PvP and exploration"
+        },
+        "swordTier": {
+          "type": "integer",
+          "description": "Weapon upgrade tier (1 to 10)"
+        },
+        "armorTier": {
+          "type": "integer",
+          "description": "Armor upgrade tier (1 to 10)"
+        },
+        "agilityTier": {
+          "type": "integer",
+          "description": "Agility and stamina upgrade tier (1 to 10)"
+        },
+        "pvpKills": {
+          "type": "integer",
+          "description": "Total defeated PvP rivals and challengers"
+        },
+        "deaths": {
+          "type": "integer",
+          "description": "Total times defeated"
+        },
+        "discoveredBiomes": {
+          "type": "array",
+          "description": "List of discovered biome IDs (max 10)"
+        },
+        "lastX": {
+          "type": "number",
+          "description": "Last saved world X coordinate"
+        },
+        "lastZ": {
+          "type": "number",
+          "description": "Last saved world Z coordinate"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of profile creation"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last cloud save"
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "tunicColor",
+        "level",
+        "xp",
+        "gold",
+        "swordTier",
+        "armorTier",
+        "agilityTier",
+        "pvpKills",
+        "deaths",
+        "discoveredBiomes",
+        "lastX",
+        "lastZ",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/PlayerProfile"
+      },
+      "description": "Private persistent character save record owned exclusively by the authenticated user."
+    }
+  }
+}

@@ -1,0 +1,165 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidBiomesList(biomes) {
+      return biomes is list
+        && biomes.size() <= 10
+        && (biomes.size() == 0 || (biomes[0] is string && biomes[0].size() >= 1 && biomes[0].size() <= 32));
+    }
+
+    function isValidPlayerProfile(data, userId) {
+      return data.keys().hasAll([
+          'uid',
+          'displayName',
+          'tunicColor',
+          'level',
+          'xp',
+          'gold',
+          'swordTier',
+          'armorTier',
+          'agilityTier',
+          'pvpKills',
+          'deaths',
+          'discoveredBiomes',
+          'lastX',
+          'lastZ',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid',
+          'displayName',
+          'tunicColor',
+          'level',
+          'xp',
+          'gold',
+          'swordTier',
+          'armorTier',
+          'agilityTier',
+          'pvpKills',
+          'deaths',
+          'discoveredBiomes',
+          'lastX',
+          'lastZ',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.uid is string
+        && isValidId(data.uid)
+        && data.uid == request.auth.uid
+        && data.uid == userId
+        && data.displayName is string
+        && data.displayName.size() >= 2
+        && data.displayName.size() <= 24
+        && data.tunicColor is string
+        && data.tunicColor.size() == 7
+        && data.tunicColor.matches('^#[0-9a-fA-F]{6}$')
+        && data.level is int
+        && data.level >= 1
+        && data.level <= 99
+        && data.xp is int
+        && data.xp >= 0
+        && data.xp <= 10000000
+        && data.gold is int
+        && data.gold >= 0
+        && data.gold <= 10000000
+        && data.swordTier is int
+        && data.swordTier >= 1
+        && data.swordTier <= 10
+        && data.armorTier is int
+        && data.armorTier >= 1
+        && data.armorTier <= 10
+        && data.agilityTier is int
+        && data.agilityTier >= 1
+        && data.agilityTier <= 10
+        && data.pvpKills is int
+        && data.pvpKills >= 0
+        && data.pvpKills <= 1000000
+        && data.deaths is int
+        && data.deaths >= 0
+        && data.deaths <= 1000000
+        && isValidBiomesList(data.discoveredBiomes)
+        && data.lastX is number
+        && data.lastX >= -200
+        && data.lastX <= 200
+        && data.lastZ is number
+        && data.lastZ >= -200
+        && data.lastZ <= 200
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if false;
+
+      allow create: if isVerifiedUser()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidPlayerProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidPlayerProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action: Sync gameplay progression & world position
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'displayName',
+            'tunicColor',
+            'level',
+            'xp',
+            'gold',
+            'swordTier',
+            'armorTier',
+            'agilityTier',
+            'pvpKills',
+            'deaths',
+            'discoveredBiomes',
+            'lastX',
+            'lastZ',
+            'updatedAt'
+          ])
+        );
+
+      allow delete: if isVerifiedUser()
+        && isValidId(userId)
+        && isOwner(userId);
+    }
+  }
+}

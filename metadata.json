@@ -1,0 +1,6 @@
+{
+  "name": "Yayla & Zirve — Açık Dünya PvP",
+  "description": "Dağlar, ovalar, çayırlar ve göl vadisi boyunca arkadaşlarınla keşfedip gelişebileceğin ve PvP düellolar yapabileceğin 3D açık dünya aksiyon oyunu.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
