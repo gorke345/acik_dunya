@@ -6,6 +6,7 @@ export interface RemotePlayerState {
   level: number;
   swordTier: number;
   armorTier: number;
+  weaponKind?: 'sword' | 'mace' | 'bow' | 'spear';
   x: number;
   y: number;
   z: number;

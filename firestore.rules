@@ -31,10 +31,14 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    function isValidBiomesList(biomes) {
-      return biomes is list
-        && biomes.size() <= 10
-        && (biomes.size() == 0 || (biomes[0] is string && biomes[0].size() >= 1 && biomes[0].size() <= 32));
+    function isBoundedStringList(arr, maxLen) {
+      return arr is list
+        && arr.size() <= maxLen
+        && (arr.size() == 0 || (arr[0] is string && arr[0].size() >= 1 && arr[0].size() <= 32));
+    }
+
+    function isValidFoodMap(foodMap) {
+      return foodMap is map && foodMap.size() <= 10;
     }
 
     function isValidPlayerProfile(data, userId) {
@@ -60,6 +64,11 @@ service cloud.firestore {
           'uid',
           'displayName',
           'tunicColor',
+          'playerClass',
+          'classWeaponUnlocked',
+          'yetiRuneUnlocked',
+          'desertArenaProgress',
+          'hasHorse',
           'level',
           'xp',
           'gold',
@@ -69,6 +78,14 @@ service cloud.firestore {
           'pvpKills',
           'deaths',
           'discoveredBiomes',
+          'ownedWeapons',
+          'equippedWeaponId',
+          'ownedArmors',
+          'equippedArmorId',
+          'foodInventory',
+          'ownedShips',
+          'activeShipId',
+          'convoyTier',
           'lastX',
           'lastZ',
           'createdAt',
@@ -84,15 +101,20 @@ service cloud.firestore {
         && data.tunicColor is string
         && data.tunicColor.size() == 7
         && data.tunicColor.matches('^#[0-9a-fA-F]{6}$')
+        && (!('playerClass' in data) || (data.playerClass is string && data.playerClass in ['guardian', 'archer', 'lancer', 'bomber', 'mage', 'assassin', 'fishman', 'yeti', 'berserker']))
+        && (!('classWeaponUnlocked' in data) || data.classWeaponUnlocked is bool)
+        && (!('yetiRuneUnlocked' in data) || data.yetiRuneUnlocked is bool)
+        && (!('desertArenaProgress' in data) || (data.desertArenaProgress is int && data.desertArenaProgress >= 0 && data.desertArenaProgress <= 5))
+        && (!('hasHorse' in data) || data.hasHorse is bool)
         && data.level is int
         && data.level >= 1
-        && data.level <= 99
+        && data.level <= 1200
         && data.xp is int
         && data.xp >= 0
-        && data.xp <= 10000000
+        && data.xp <= 50000000
         && data.gold is int
         && data.gold >= 0
-        && data.gold <= 10000000
+        && data.gold <= 50000000
         && data.swordTier is int
         && data.swordTier >= 1
         && data.swordTier <= 10
@@ -108,13 +130,21 @@ service cloud.firestore {
         && data.deaths is int
         && data.deaths >= 0
         && data.deaths <= 1000000
-        && isValidBiomesList(data.discoveredBiomes)
+        && isBoundedStringList(data.discoveredBiomes, 16)
+        && (!('ownedWeapons' in data) || isBoundedStringList(data.ownedWeapons, 18))
+        && (!('equippedWeaponId' in data) || (data.equippedWeaponId is string && data.equippedWeaponId.size() >= 1 && data.equippedWeaponId.size() <= 32))
+        && (!('ownedArmors' in data) || isBoundedStringList(data.ownedArmors, 12))
+        && (!('equippedArmorId' in data) || (data.equippedArmorId is string && data.equippedArmorId.size() >= 1 && data.equippedArmorId.size() <= 32))
+        && (!('foodInventory' in data) || isValidFoodMap(data.foodInventory))
+        && (!('ownedShips' in data) || isBoundedStringList(data.ownedShips, 4))
+        && (!('activeShipId' in data) || (data.activeShipId is string && data.activeShipId.size() <= 16))
+        && (!('convoyTier' in data) || (data.convoyTier is int && data.convoyTier >= 1 && data.convoyTier <= 10))
         && data.lastX is number
-        && data.lastX >= -200
-        && data.lastX <= 200
+        && data.lastX >= -1900
+        && data.lastX <= 1900
         && data.lastZ is number
-        && data.lastZ >= -200
-        && data.lastZ <= 200
+        && data.lastZ >= -1900
+        && data.lastZ <= 1900
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -138,10 +168,14 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && (
-          // Action: Sync gameplay progression & world position
           incoming().diff(existing()).affectedKeys().hasOnly([
             'displayName',
             'tunicColor',
+            'playerClass',
+            'classWeaponUnlocked',
+            'yetiRuneUnlocked',
+            'desertArenaProgress',
+            'hasHorse',
             'level',
             'xp',
             'gold',
@@ -151,6 +185,14 @@ service cloud.firestore {
             'pvpKills',
             'deaths',
             'discoveredBiomes',
+            'ownedWeapons',
+            'equippedWeaponId',
+            'ownedArmors',
+            'equippedArmorId',
+            'foodInventory',
+            'ownedShips',
+            'activeShipId',
+            'convoyTier',
             'lastX',
             'lastZ',
             'updatedAt'

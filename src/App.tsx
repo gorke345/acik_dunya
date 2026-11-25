@@ -4,17 +4,59 @@ import {
   OpenWorldEngine,
   HudSnapshot,
   GameModeState,
+  QuestInteractKind,
 } from './game/gameEngine';
 import {
+  CLASS_DEFINITIONS,
+  DESERT_ARENA_REQUIRED_KILLS,
+  PlayerClassId,
   PlayerProfileData,
+  RelicSourceId,
   UpgradeType,
   createDefaultProfile,
   awardXpAndGold,
   applyUpgrade,
+  buyHorse,
+  buyFoodItem,
+  consumeFoodItem,
+  buyWeaponItem,
+  equipWeaponItem,
+  buyArmorItem,
+  equipArmorItem,
+  buyHarborShip,
   getDerivedStats,
+  getClassColor,
+  isValidClassId,
+  tryUnlockClassWeapon,
+  unlockYetiRune,
 } from './game/combatRules';
-import { BIOME_META, BiomeId, SAFE_ZONE_CENTER } from './game/worldMath';
+import { FoodId, SHIP_BY_ID, ShipId, WEAPON_BY_ID } from './game/inventoryData';
+import {
+  BIOME_META,
+  BiomeId,
+  SAFE_ZONE_CENTER,
+  TOWN_TAVERN_POS,
+  HARBOR_POS,
+  HARBOR_SAILOR_POS,
+  DARK_FOREST_POS,
+  MOUNTAIN_CRYSTAL_POS,
+  FOREST_TREE_POS,
+  DESERT_ARENA_POS,
+  PIER_START_X,
+  PIER_Z,
+  PIRATE_ISLAND_POS,
+  PIRATE_RELIC_POS,
+  WIZARD_ISLAND_POS,
+  WIZARD_RELIC_POS,
+  FLOATING_TOWN_POS,
+  WHIRLPOOL_POS,
+  UNDERWATER_CITY_POS,
+  HORROR_FOREST_POS,
+  YETI_BOSS_POS,
+} from './game/worldMath';
+import { CONVOY_BASE_GOLD, CONVOY_MAX_TIER, DESERT_ARENA_TOTAL_WAVES } from './game/worldEvents';
 import { soundEngine } from './game/soundEngine';
+import { WEATHER_PRESETS } from './game/weatherSystem';
 import {
   subscribeAuth,
   signInWithGoogle,
@@ -30,31 +72,140 @@ import {
 import { TitleScreen } from './components/TitleScreen';
 import { GameHud, CombatToast } from './components/GameHud';
 import { UpgradeModal } from './components/UpgradeModal';
+import { InventoryModal } from './components/InventoryModal';
+import { TavernModal } from './components/TavernModal';
+import { HarborModal } from './components/HarborModal';
 import { FriendsRoomModal } from './components/FriendsRoomModal';
 import { StatusModal } from './components/StatusModal';
+
+type GotoLandmark =
+  | 'lake'
+  | 'mountain'
+  | 'forest'
+  | 'darkforest'
+  | 'desert'
+  | 'tavern'
+  | 'harbor'
+  | 'pirate'
+  | 'wizard'
+  | 'floating'
+  | 'whirlpool'
+  | 'underwater'
+  | 'horror'
+  | 'northpole'
+  | 'ocean'
+  | null;
 
 function getInitialQueryParams() {
   const params = new URLSearchParams(window.location.search);
   const autostart = params.get('autostart') === '1';
   const rawRoom = params.get('room') || 'ANA-DUNYA';
   const room = rawRoom.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 16) || 'ANA-DUNYA';
-  return { autostart, room };
+  const rawClass = params.get('class');
+  const starterClass: PlayerClassId = isValidClassId(rawClass) ? rawClass : 'guardian';
+  const rawGoto = params.get('goto');
+  const goto: GotoLandmark =
+    rawGoto === 'lake' ||
+    rawGoto === 'mountain' ||
+    rawGoto === 'forest' ||
+    rawGoto === 'darkforest' ||
+    rawGoto === 'desert' ||
+    rawGoto === 'tavern' ||
+    rawGoto === 'harbor' ||
+    rawGoto === 'pirate' ||
+    rawGoto === 'wizard' ||
+    rawGoto === 'floating' ||
+    rawGoto === 'whirlpool' ||
+    rawGoto === 'underwater' ||
+    rawGoto === 'horror' ||
+    rawGoto === 'northpole' ||
+    rawGoto === 'ocean'
+      ? rawGoto
+      : null;
+  const unlock = params.get('unlock') === '1';
+  const runic = params.get('runic') === '1';
+  const rawWeapon = params.get('weapon');
+  const weapon = rawWeapon && WEAPON_BY_ID[rawWeapon] ? rawWeapon : null;
+  const rawGold = params.get('gold');
+  const gold =
+    rawGold !== null && Number.isFinite(Number(rawGold))
+      ? Math.max(0, Math.min(5000000, Math.floor(Number(rawGold))))
+      : null;
+  const horse = params.get('horse') === '1';
+  const rawWave = params.get('wave');
+  const wave =
+    rawWave !== null && Number.isFinite(Number(rawWave))
+      ? Math.max(1, Math.min(DESERT_ARENA_TOTAL_WAVES, Math.floor(Number(rawWave))))
+      : null;
+  const ambush = params.get('ambush') === '1';
+  const fp = params.get('fp') === '1';
+  const rawShip = params.get('ship');
+  const ship: ShipId | null = rawShip === 'sloop' || rawShip === 'galleon' ? rawShip : null;
+  const pirate = params.get('pirate') === '1';
+  const rawConvoy = params.get('convoy');
+  const convoy =
+    rawConvoy !== null && Number.isFinite(Number(rawConvoy))
+      ? Math.max(1, Math.min(CONVOY_MAX_TIER, Math.floor(Number(rawConvoy))))
+      : null;
+  return {
+    autostart,
+    room,
+    starterClass,
+    goto,
+    unlock,
+    runic,
+    weapon,
+    gold,
+    horse,
+    wave,
+    ambush,
+    fp,
+    ship,
+    pirate,
+    convoy,
+  };
 }
 
 const INITIAL_HUD: HudSnapshot = {
-  hp: 100,
-  maxHp: 100,
-  stamina: 100,
-  maxStamina: 100,
+  hp: 260,
+  maxHp: 260,
+  stamina: 140,
+  maxStamina: 140,
   biome: 'meadow',
   inSafeZone: true,
   nearCampfire: true,
+  nearbyInteractable: null,
   playerX: SAFE_ZONE_CENTER.x,
-  playerZ: SAFE_ZONE_CENTER.z + 4,
+  playerZ: SAFE_ZONE_CENTER.z + 12,
   playerYaw: Math.PI,
   lightCooldown: 0,
   heavyCooldown: 0,
   dashCooldown: 0,
+  weather: 'clear',
+  cameraMode: 'third_person',
+  hasHorse: false,
+  isMounted: false,
+  horseDistance: null,
+  hasShip: false,
+  isSailing: false,
+  shipHp: 2200,
+  shipMaxHp: 2200,
+  activeShipName: null,
+  activeBuffs: [],
+  arenaWave: 0,
+  arenaWaveTotal: DESERT_ARENA_TOTAL_WAVES,
+  arenaRemaining: 0,
+  ambushActive: false,
+  ambushRemaining: 0,
+  pirateAmbushActive: false,
+  pirateRemaining: 0,
+  convoyTier: 1,
+  convoyGoldNext: CONVOY_BASE_GOLD,
+  bowCharge: 0,
+  bowZooming: false,
+  isSwimming: false,
+  escapeNameTr: 'Kalkan Hücumu',
+  escapeCooldownMax: 2.0,
   actors: [],
 };
 
@@ -75,7 +226,12 @@ export default function App() {
   const [gameState, setGameState] = useState<GameModeState>('title');
   const [isGuest, setIsGuest] = useState(true);
   const [profile, setProfile] = useState<PlayerProfileData>(() =>
-    createDefaultProfile(`guest_${Math.random().toString(36).slice(2, 8)}`, 'Gezgin-42')
+    createDefaultProfile(
+      `guest_${Math.random().toString(36).slice(2, 8)}`,
+      'Gezgin-42',
+      undefined,
+      initialParams.current.starterClass
+    )
   );
   const [hud, setHud] = useState<HudSnapshot>(INITIAL_HUD);
   const [roomCode, setRoomCode] = useState(initialParams.current.room);
@@ -88,6 +244,9 @@ export default function App() {
 
   // Overlay modals
   const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [inventoryOpen, setInventoryOpen] = useState(false);
+  const [tavernOpen, setTavernOpen] = useState(false);
+  const [harborOpen, setHarborOpen] = useState(false);
   const [friendsOpen, setFriendsOpen] = useState(false);
 
   // Multiplayer room state
@@ -120,37 +279,65 @@ export default function App() {
     setToasts((prev) => [...prev.slice(-4), { id, text, tone }]);
     window.setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 3600);
+    }, 3800);
   }, []);
 
-  const persistIfUser = useCallback(
-    async (nextProf: PlayerProfileData) => {
-      const user = authUserRef.current;
-      if (isGuestRef.current || !user) return;
-      const pos = engineRef.current?.getPlayerPosition();
-      const withPos: PlayerProfileData = {
-        ...nextProf,
-        lastX: pos ? pos.x : nextProf.lastX,
-        lastZ: pos ? pos.z : nextProf.lastZ,
-      };
-      setSaveStatus('saving');
-      try {
-        await savePlayerProfile(user.uid, withPos);
-        setSavedProfile(withPos);
-        setSaveStatus('saved');
-      } catch (err) {
-        console.error('Cloud save error:', err);
-        setSaveStatus('idle');
-      }
-    },
-    []
-  );
+  const persistIfUser = useCallback(async (nextProf: PlayerProfileData) => {
+    const user = authUserRef.current;
+    if (isGuestRef.current || !user) return;
+    const pos = engineRef.current?.getPlayerPosition();
+    const withPos: PlayerProfileData = {
+      ...nextProf,
+      lastX: pos ? pos.x : nextProf.lastX,
+      lastZ: pos ? pos.z : nextProf.lastZ,
+    };
+    setSaveStatus('saving');
+    try {
+      await savePlayerProfile(user.uid, withPos);
+      setSavedProfile(withPos);
+      setSaveStatus('saved');
+    } catch (err) {
+      console.error('Cloud save error:', err);
+      setSaveStatus('idle');
+    }
+  }, []);
 
   // Sync body dataset state for Game Shell & verification
   useEffect(() => {
     document.body.dataset.state = gameState;
     engineRef.current?.setGameState(gameState);
   }, [gameState]);
+
+  useEffect(() => {
+    document.body.dataset.weather = hud.weather;
+  }, [hud.weather]);
+
+  useEffect(() => {
+    document.body.dataset.playerClass = profile.playerClass;
+    document.body.dataset.weaponUnlocked = String(profile.classWeaponUnlocked);
+    document.body.dataset.yetiRune = String(profile.yetiRuneUnlocked);
+    document.body.dataset.hasHorse = String(profile.hasHorse);
+  }, [profile.playerClass, profile.classWeaponUnlocked, profile.yetiRuneUnlocked, profile.hasHorse]);
+
+  useEffect(() => {
+    document.body.dataset.mounted = String(hud.isMounted);
+    document.body.dataset.sailing = String(hud.isSailing);
+    document.body.dataset.swimming = String(hud.isSwimming);
+    document.body.dataset.bowZoom = String(hud.bowZooming);
+    document.body.dataset.biome = hud.biome;
+    document.body.dataset.cameraMode = hud.cameraMode;
+    document.body.dataset.playerX = String(Math.round(hud.playerX * 10) / 10);
+    document.body.dataset.playerZ = String(Math.round(hud.playerZ * 10) / 10);
+  }, [
+    hud.isMounted,
+    hud.isSailing,
+    hud.isSwimming,
+    hud.bowZooming,
+    hud.biome,
+    hud.cameraMode,
+    hud.playerX,
+    hud.playerZ,
+  ]);
 
   // Subscribe to Firebase Auth state
   useEffect(() => {
@@ -187,6 +374,7 @@ export default function App() {
         level: prof.level,
         swordTier: prof.swordTier,
         armorTier: prof.armorTier,
+        weaponKind: stats.activeWeaponKind,
         attackPower: stats.attackPower,
         defense: stats.defense,
         x: pos.x,
@@ -211,6 +399,9 @@ export default function App() {
       setProfile(nextProf);
       setRoomCode(targetRoom);
       setUpgradeOpen(false);
+      setInventoryOpen(false);
+      setTavernOpen(false);
+      setHarborOpen(false);
       setFriendsOpen(false);
       setKillerName('');
 
@@ -219,10 +410,11 @@ export default function App() {
       setGameState('playing');
 
       mpRef.current?.connect(buildJoinPayload(nextProf, guestMode, targetRoom));
+      const classDef = CLASS_DEFINITIONS[nextProf.playerClass];
       pushToast(
         guestMode
-          ? `Misafir olarak ${targetRoom} odasına katıldın.`
-          : `Hoş geldin ${nextProf.displayName}! Bulut kaydın yüklendi.`,
+          ? `${classDef.nameTr} olarak ${targetRoom} odasına katıldın.`
+          : `Hoş geldin ${nextProf.displayName} (${classDef.nameTr})! Bulut kaydın yüklendi.`,
         'info'
       );
     },
@@ -309,7 +501,7 @@ export default function App() {
             senderId: 'system',
             senderName: 'PvP',
             tunicColor: '#f07154',
-            text: `⚔️ ${ev.killerName}, ${ev.victimName} adlı savaşçıyı alt etti!`,
+            text: `${ev.killerName}, ${ev.victimName} adlı savaşçıyı alt etti!`,
             ts: Date.now(),
             system: true,
           },
@@ -367,6 +559,7 @@ export default function App() {
         );
         setProfile(res.profile);
         engineRef.current?.applyProfile(res.profile, false);
+
         if (res.leveledUp) {
           soundEngine.playLevelUp();
           pushToast(`SEVİYE ATLADIN! Seviye ${res.profile.level}`, 'reward');
@@ -375,12 +568,100 @@ export default function App() {
         }
         void persistIfUser(res.profile);
       },
+      onDesertArenaWaveCleared: (wave, completedAll) => {
+        const cur = profileRef.current;
+        const nextWaveProg = Math.max(cur.desertArenaProgress, wave);
+        let updated: PlayerProfileData = {
+          ...cur,
+          desertArenaProgress: nextWaveProg,
+        };
+        let unlockedSpear = false;
+        if (completedAll && updated.playerClass === 'lancer' && !updated.classWeaponUnlocked) {
+          updated = {
+            ...updated,
+            classWeaponUnlocked: true,
+            ownedWeapons: updated.ownedWeapons.includes('desert_spear')
+              ? updated.ownedWeapons
+              : [...updated.ownedWeapons, 'desert_spear'],
+            equippedWeaponId: 'desert_spear',
+          };
+          unlockedSpear = true;
+        }
+        const waveBonusXp = 160 * wave;
+        const waveBonusGold = 120 * wave;
+        const res = awardXpAndGold(updated, waveBonusXp, waveBonusGold);
+        setProfile(res.profile);
+        engineRef.current?.applyProfile(res.profile, false);
+
+        if (unlockedSpear) {
+          soundEngine.playWeaponUnlock();
+          pushToast(
+            '5 Dalgalı Çöl Arenası tamamlandı! Efsanevi Çöl Mızrağı kuşandın!',
+            'reward'
+          );
+        } else if (completedAll) {
+          soundEngine.playLevelUp();
+          pushToast(
+            `Çöl Arenası 5/5 dalga tamamlandı! +${waveBonusXp} TP · +${waveBonusGold} Altın`,
+            'reward'
+          );
+        } else {
+          soundEngine.playLevelUp();
+          pushToast(
+            `Çöl Arenası Dalga ${wave}/${DESERT_ARENA_TOTAL_WAVES} geçildi! +${waveBonusGold} Altın`,
+            'reward'
+          );
+        }
+        void persistIfUser(res.profile);
+      },
+      onConvoySunk: (tier, goldReward, xpReward, nextTier) => {
+        const cur = profileRef.current;
+        const res = awardXpAndGold(
+          { ...cur, convoyTier: nextTier, pvpKills: cur.pvpKills + 1 },
+          xpReward,
+          goldReward
+        );
+        setProfile(res.profile);
+        engineRef.current?.applyProfile(res.profile, false);
+        if (res.leveledUp) {
+          soundEngine.playLevelUp();
+          pushToast(
+            `KONVOY BATIRILDI (Sv.${tier})! +${goldReward} Altın & SEVİYE ${res.profile.level}!`,
+            'reward'
+          );
+        }
+        void persistIfUser(res.profile);
+      },
+      onYetiBossDefeated: () => {
+        const cur = profileRef.current;
+        const runeRes = unlockYetiRune(cur);
+        if (runeRes.newlyUnlocked) {
+          setProfile(runeRes.profile);
+          engineRef.current?.applyProfile(runeRes.profile, false);
+          soundEngine.playRunicAwaken();
+          pushToast(
+            'YETİ RÜNÜ DÜŞTÜ! Buz Yetisi 5x güçlendi ve Rünik forma dönüştü!',
+            'reward'
+          );
+          void persistIfUser(runeRes.profile);
+        } else if (cur.playerClass === 'yeti') {
+          pushToast('1000 Sv. Devasa Buz Yetisi yeniden alt edildi!', 'reward');
+        } else {
+          pushToast(
+            '1000 Sv. Devasa Buz Yetisi alt edildi! (Yeti Rünü yalnızca Buz Yetisi sınıfında uyanır.)',
+            'reward'
+          );
+        }
+      },
       onPlayerDefeated: (killer) => {
         const cur = profileRef.current;
         const updated: PlayerProfileData = { ...cur, deaths: cur.deaths + 1 };
         setProfile(updated);
         setKillerName(killer);
         setUpgradeOpen(false);
+        setInventoryOpen(false);
+        setTavernOpen(false);
+        setHarborOpen(false);
         setFriendsOpen(false);
         setGameState('gameover');
         void persistIfUser(updated);
@@ -395,6 +676,7 @@ export default function App() {
           level: cur.level,
           swordTier: cur.swordTier,
           armorTier: cur.armorTier,
+          weaponKind: stats.activeWeaponKind,
           attackPower: stats.attackPower,
           defense: stats.defense,
           pvpEnabled: pvpEnabledRef.current,
@@ -406,21 +688,192 @@ export default function App() {
         mpRef.current?.sendAttack(heavy);
       },
       onCampfireInteract: () => {
+        setFriendsOpen(false);
+        setInventoryOpen(false);
+        setTavernOpen(false);
+        setHarborOpen(false);
         setUpgradeOpen(true);
         engineRef.current?.healFull();
-        pushToast('Kamp ateşi yaralarını iyileştirdi!', 'info');
+        pushToast('Kasaba ocağı yaralarını iyileştirdi!', 'info');
+      },
+      onTownStableInteract: () => {
+        setFriendsOpen(false);
+        setInventoryOpen(false);
+        setTavernOpen(false);
+        setHarborOpen(false);
+        setUpgradeOpen(true);
+      },
+      onTownTavernInteract: () => {
+        setFriendsOpen(false);
+        setUpgradeOpen(false);
+        setInventoryOpen(false);
+        setHarborOpen(false);
+        setTavernOpen(true);
+      },
+      onHarborSailorInteract: () => {
+        setFriendsOpen(false);
+        setUpgradeOpen(false);
+        setInventoryOpen(false);
+        setTavernOpen(false);
+        setHarborOpen(true);
+      },
+      onClassQuestInteract: (source: QuestInteractKind) => {
+        const cur = profileRef.current;
+        const relicMap: Record<QuestInteractKind, RelicSourceId> = {
+          mountain_crystal: 'mountain_crystal',
+          forest_tree: 'forest_tree',
+          desert_arena: 'desert_arena',
+          pirate_relic: 'pirate_island',
+          wizard_relic: 'wizard_island',
+          horror_relic: 'horror_forest',
+          underwater_relic: 'underwater_city',
+        };
+        const mappedRelic = relicMap[source];
+
+        if (source === 'desert_arena' && cur.desertArenaProgress < DESERT_ARENA_REQUIRED_KILLS) {
+          const left = DESERT_ARENA_REQUIRED_KILLS - cur.desertArenaProgress;
+          pushToast(`Arenayı tamamlamak için ${left} dalga daha geçmelisin!`, 'danger');
+          return;
+        }
+
+        const unlockRes = tryUnlockClassWeapon(cur, mappedRelic);
+        if (unlockRes.wrongClass) {
+          const ownerHint =
+            source === 'mountain_crystal'
+              ? 'Dağdaki Kristal yalnızca Mavi Muhafız sınıfı içindir (Sersemleten Gürz).'
+              : source === 'forest_tree'
+              ? 'Kadim Orman Ağacı yalnızca Yeşil Okçu sınıfı içindir (Uzak Menzil Ok).'
+              : source === 'pirate_relic'
+              ? 'Korsan Cephaneliği yalnızca Bombacı sınıfı içindir.'
+              : source === 'wizard_relic'
+              ? 'Büyücü Kulesi Asası yalnızca Büyücü sınıfı içindir.'
+              : source === 'horror_relic'
+              ? 'Korku Ormanı Hançerleri yalnızca Gölge Suikastçısı sınıfı içindir.'
+              : source === 'underwater_relic'
+              ? "Poseidon'un Mızrağı yalnızca Balıkadam sınıfı içindir."
+              : 'Çöl Arenası ödülü yalnızca Kızıl Mızrakçı sınıfı içindir.';
+          pushToast(ownerHint, 'info');
+          return;
+        }
+        if (unlockRes.alreadyUnlocked) {
+          pushToast(`${unlockRes.weaponNameTr} zaten envanterinde!`, 'info');
+          return;
+        }
+        if (unlockRes.unlocked) {
+          const rewarded = awardXpAndGold(unlockRes.profile, 220, 180).profile;
+          setProfile(rewarded);
+          engineRef.current?.applyProfile(rewarded, false);
+          soundEngine.playWeaponUnlock();
+          pushToast(`${unlockRes.weaponNameTr} bulundu, envantere eklendi ve kuşanıldı!`, 'reward');
+          void persistIfUser(rewarded);
+        }
       },
       onCombatToast: (text, tone) => pushToast(text, tone),
+      onWeatherChanged: (w) => {
+        pushToast(`Hava Durumu: ${WEATHER_PRESETS[w].labelTr}`, 'info');
+      },
+      onCameraModeChanged: (mode) => {
+        pushToast(
+          mode === 'first_person'
+            ? 'Birinci Şahıs Görünümü aktif! Fare veya ok tuşlarıyla bak, [C] ile çık.'
+            : 'Üçüncü Şahıs Sabit Kamera aktif.',
+          'info'
+        );
+      },
     });
     engineRef.current = engine;
 
-    // Support ?autostart=1 for instant play / verification
+    // Support verification & deep-link query params
     if (initialParams.current.autostart) {
-      const guestProf = createDefaultProfile(
+      const baseProf = createDefaultProfile(
         `guest_${Math.random().toString(36).slice(2, 8)}`,
-        'Gezgin-42'
+        'Gezgin-42',
+        undefined,
+        initialParams.current.starterClass
       );
+      const classDef = CLASS_DEFINITIONS[baseProf.playerClass];
+      const unlockedWeaponsSet = new Set(baseProf.ownedWeapons);
+      if (initialParams.current.unlock) unlockedWeaponsSet.add(classDef.weaponId);
+      if (initialParams.current.weapon) unlockedWeaponsSet.add(initialParams.current.weapon);
+      if (initialParams.current.runic && baseProf.playerClass === 'yeti') {
+        unlockedWeaponsSet.add('runic_yeti_claws');
+      }
+      const shipParam = initialParams.current.ship;
+      const runicActive = initialParams.current.runic && baseProf.playerClass === 'yeti';
+      const chosenWeapon =
+        initialParams.current.weapon ||
+        (runicActive
+          ? 'runic_yeti_claws'
+          : initialParams.current.unlock
+          ? classDef.weaponId
+          : baseProf.equippedWeaponId);
+      const guestProf: PlayerProfileData = {
+        ...baseProf,
+        gold: initialParams.current.gold !== null ? initialParams.current.gold : baseProf.gold,
+        hasHorse: initialParams.current.horse,
+        classWeaponUnlocked: initialParams.current.unlock || runicActive || baseProf.classWeaponUnlocked,
+        yetiRuneUnlocked: runicActive,
+        ownedWeapons: Array.from(unlockedWeaponsSet),
+        equippedWeaponId: chosenWeapon,
+        ownedShips: shipParam ? [shipParam] : [],
+        activeShipId: shipParam || '',
+        desertArenaProgress:
+          initialParams.current.unlock && baseProf.playerClass === 'lancer'
+            ? DESERT_ARENA_REQUIRED_KILLS
+            : 0,
+      };
       enterWorld(guestProf, true, initialParams.current.room);
+
+      if (initialParams.current.goto === 'mountain') {
+        engine.teleportTo(MOUNTAIN_CRYSTAL_POS.x, MOUNTAIN_CRYSTAL_POS.z + 3.4, Math.PI);
+      } else if (initialParams.current.goto === 'forest') {
+        engine.teleportTo(FOREST_TREE_POS.x + 2.4, FOREST_TREE_POS.z + 3.2, -0.5);
+      } else if (initialParams.current.goto === 'darkforest') {
+        engine.teleportTo(DARK_FOREST_POS.x, DARK_FOREST_POS.z + 5, Math.PI);
+      } else if (initialParams.current.goto === 'desert') {
+        engine.teleportTo(DESERT_ARENA_POS.x, DESERT_ARENA_POS.z + 10.5, Math.PI);
+      } else if (initialParams.current.goto === 'lake') {
+        engine.teleportTo(PIER_START_X - 8, PIER_Z, -Math.PI * 0.5);
+      } else if (initialParams.current.goto === 'tavern') {
+        engine.teleportTo(TOWN_TAVERN_POS.x - 1.5, TOWN_TAVERN_POS.z + 4.5, Math.PI);
+      } else if (initialParams.current.goto === 'harbor') {
+        engine.teleportTo(HARBOR_SAILOR_POS.x, HARBOR_SAILOR_POS.z - 2.5, 0);
+      } else if (initialParams.current.goto === 'pirate') {
+        engine.teleportTo(PIRATE_RELIC_POS.x, PIRATE_RELIC_POS.z + 5, Math.PI);
+      } else if (initialParams.current.goto === 'wizard') {
+        engine.teleportTo(WIZARD_RELIC_POS.x, WIZARD_RELIC_POS.z + 5, Math.PI);
+      } else if (initialParams.current.goto === 'floating') {
+        engine.teleportTo(FLOATING_TOWN_POS.x, FLOATING_TOWN_POS.z + 10, Math.PI);
+      } else if (initialParams.current.goto === 'whirlpool') {
+        engine.teleportTo(WHIRLPOOL_POS.x, WHIRLPOOL_POS.z + 42, Math.PI);
+      } else if (initialParams.current.goto === 'underwater') {
+        engine.teleportTo(UNDERWATER_CITY_POS.x, UNDERWATER_CITY_POS.z + 24, Math.PI);
+      } else if (initialParams.current.goto === 'horror') {
+        engine.teleportTo(HORROR_FOREST_POS.x, HORROR_FOREST_POS.z + 18, Math.PI);
+      } else if (initialParams.current.goto === 'northpole') {
+        engine.teleportTo(YETI_BOSS_POS.x, YETI_BOSS_POS.z + 30, Math.PI);
+      } else if (initialParams.current.goto === 'ocean') {
+        engine.teleportTo(HARBOR_POS.x + 20, HARBOR_POS.z + 125, Math.PI);
+      }
+
+      if (shipParam) {
+        engine.launchFromHarbor(shipParam);
+      }
+      if (initialParams.current.convoy !== null) {
+        engine.setConvoyTierForTest(initialParams.current.convoy);
+      }
+      if (initialParams.current.pirate) {
+        engine.triggerPirateAmbush();
+      }
+      if (initialParams.current.wave !== null) {
+        engine.startDesertArenaWave(initialParams.current.wave);
+      }
+      if (initialParams.current.ambush) {
+        engine.triggerBanditAmbush();
+      }
+      if (initialParams.current.fp) {
+        engine.setCameraMode('first_person');
+      }
     }
 
     return () => {
@@ -440,7 +893,7 @@ export default function App() {
     return () => window.clearInterval(interval);
   }, [isGuest, authUser, gameState, persistIfUser]);
 
-  // Global keyboard shortcuts (Title Enter/Space, Pause Esc/P, Upgrade U, Friends F, Mute M)
+  // Global keyboard shortcuts (Title Enter/Space, Pause Esc/P, Upgrade U, Friends F, Weather V, Mute M)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName;
@@ -460,13 +913,22 @@ export default function App() {
           (e.target as HTMLElement).blur();
           setFriendsOpen(false);
           setUpgradeOpen(false);
+          setInventoryOpen(false);
+          setTavernOpen(false);
+          setHarborOpen(false);
         }
         return;
       }
 
       if (e.code === 'Escape' || e.code === 'KeyP') {
         e.preventDefault();
-        if (upgradeOpen) {
+        if (inventoryOpen) {
+          setInventoryOpen(false);
+        } else if (tavernOpen) {
+          setTavernOpen(false);
+        } else if (harborOpen) {
+          setHarborOpen(false);
+        } else if (upgradeOpen) {
           setUpgradeOpen(false);
         } else if (friendsOpen) {
           setFriendsOpen(false);
@@ -475,14 +937,30 @@ export default function App() {
         } else if (gameStateRef.current === 'paused') {
           setGameState('playing');
         }
+      } else if (e.code === 'KeyI' && gameStateRef.current === 'playing') {
+        e.preventDefault();
+        setUpgradeOpen(false);
+        setFriendsOpen(false);
+        setTavernOpen(false);
+        setHarborOpen(false);
+        setInventoryOpen((v) => !v);
       } else if (e.code === 'KeyU' && gameStateRef.current === 'playing') {
         e.preventDefault();
         setFriendsOpen(false);
+        setInventoryOpen(false);
+        setTavernOpen(false);
+        setHarborOpen(false);
         setUpgradeOpen((v) => !v);
-      } else if ((e.code === 'KeyF' || e.code === 'KeyT') && gameStateRef.current === 'playing') {
+      } else if (e.code === 'KeyT' && gameStateRef.current === 'playing') {
         e.preventDefault();
         setUpgradeOpen(false);
+        setInventoryOpen(false);
+        setTavernOpen(false);
+        setHarborOpen(false);
         setFriendsOpen((v) => !v);
+      } else if (e.code === 'KeyV' && gameStateRef.current === 'playing') {
+        e.preventDefault();
+        engineRef.current?.cycleWeather();
       } else if (e.code === 'KeyM') {
         e.preventDefault();
         setMuted((prev) => {
@@ -495,7 +973,7 @@ export default function App() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [upgradeOpen, friendsOpen]);
+  }, [upgradeOpen, inventoryOpen, tavernOpen, harborOpen, friendsOpen]);
 
   // Handlers
   const handleGoogleLogin = async () => {
@@ -515,28 +993,40 @@ export default function App() {
     setSavedProfile(null);
   };
 
-  const handleStartAsUser = (displayName: string, tunicColor: string, targetRoom: string) => {
+  const handleStartAsUser = (
+    displayName: string,
+    playerClass: PlayerClassId,
+    targetRoom: string
+  ) => {
     if (!authUser || !savedProfile) return;
+    const switchedClass = savedProfile.playerClass !== playerClass;
     const updated: PlayerProfileData = {
       ...savedProfile,
       displayName: displayName.trim() || savedProfile.displayName,
-      tunicColor,
+      playerClass,
+      tunicColor: getClassColor(playerClass),
+      classWeaponUnlocked: switchedClass ? false : savedProfile.classWeaponUnlocked,
     };
     enterWorld(updated, false, targetRoom);
     void persistIfUser(updated);
   };
 
-  const handleStartAsGuest = (displayName: string, tunicColor: string, targetRoom: string) => {
+  const handleStartAsGuest = (
+    displayName: string,
+    playerClass: PlayerClassId,
+    targetRoom: string
+  ) => {
     const guestProf = createDefaultProfile(
       `guest_${Math.random().toString(36).slice(2, 9)}`,
       displayName,
-      tunicColor
+      getClassColor(playerClass),
+      playerClass
     );
     enterWorld(guestProf, true, targetRoom);
   };
 
   const handleUpgrade = (type: UpgradeType) => {
-    const res = applyUpgrade(profile, type);
+    const res = applyUpgrade(profile, type, hud.inSafeZone);
     if (!res.success) {
       pushToast(res.reason || 'Yükseltme yapılamadı.', 'danger');
       return;
@@ -544,8 +1034,140 @@ export default function App() {
     setProfile(res.profile);
     engineRef.current?.applyProfile(res.profile, false);
     soundEngine.playUpgradeForge();
-    pushToast('Ekipman güçlendirildi!', 'reward');
+    pushToast('Kasaba demircisinde ekipman güçlendirildi!', 'reward');
     void persistIfUser(res.profile);
+  };
+
+  const handleBuyHorse = () => {
+    const res = buyHorse(profile, hud.inSafeZone);
+    if (!res.success) {
+      pushToast(res.reason || 'At satın alınamadı.', 'danger');
+      return;
+    }
+    setProfile(res.profile);
+    engineRef.current?.applyProfile(res.profile, false);
+    soundEngine.playHorseWhinny();
+    pushToast('Binek atı satın alındı! [F] ile bin/in, [G] ile yanına çağır.', 'reward');
+    void persistIfUser(res.profile);
+  };
+
+  const handleBuyWeapon = (weaponId: string) => {
+    const res = buyWeaponItem(profile, weaponId);
+    if (!res.success) {
+      pushToast(res.reason || 'Silah satın alınamadı.', 'danger');
+      return;
+    }
+    setProfile(res.profile);
+    engineRef.current?.applyProfile(res.profile, false);
+    soundEngine.playUpgradeForge();
+    pushToast('Yeni silah satın alındı ve kuşanıldı!', 'reward');
+    void persistIfUser(res.profile);
+  };
+
+  const handleEquipWeapon = (weaponId: string) => {
+    const res = equipWeaponItem(profile, weaponId);
+    if (!res.success) {
+      pushToast(res.reason || 'Silah kuşanılamadı.', 'danger');
+      return;
+    }
+    setProfile(res.profile);
+    engineRef.current?.applyProfile(res.profile, false);
+    soundEngine.playSlash(false);
+    pushToast('Silah değiştirildi!', 'info');
+    void persistIfUser(res.profile);
+  };
+
+  const handleBuyArmor = (armorId: string) => {
+    const res = buyArmorItem(profile, armorId);
+    if (!res.success) {
+      pushToast(res.reason || 'Zırh satın alınamadı.', 'danger');
+      return;
+    }
+    setProfile(res.profile);
+    engineRef.current?.applyProfile(res.profile, false);
+    soundEngine.playUpgradeForge();
+    pushToast('Yeni zırh satın alındı ve giyildi!', 'reward');
+    void persistIfUser(res.profile);
+  };
+
+  const handleEquipArmor = (armorId: string) => {
+    const res = equipArmorItem(profile, armorId);
+    if (!res.success) {
+      pushToast(res.reason || 'Zırh giyilemedi.', 'danger');
+      return;
+    }
+    setProfile(res.profile);
+    engineRef.current?.applyProfile(res.profile, false);
+    pushToast('Zırh değiştirildi!', 'info');
+    void persistIfUser(res.profile);
+  };
+
+  const handleBuyFood = (foodId: FoodId, eatImmediately: boolean) => {
+    const res = buyFoodItem(profile, foodId, true);
+    if (!res.success) {
+      pushToast(res.reason || 'Yemek satın alınamadı.', 'danger');
+      return;
+    }
+    if (eatImmediately) {
+      const eatRes = consumeFoodItem(res.profile, foodId);
+      if (eatRes.success) {
+        setProfile(eatRes.profile);
+        engineRef.current?.applyProfile(eatRes.profile, false);
+        engineRef.current?.activateFoodBuff(foodId);
+        void persistIfUser(eatRes.profile);
+        return;
+      }
+    }
+    setProfile(res.profile);
+    soundEngine.playUpgradeForge();
+    pushToast('Yemek çantana eklendi! [I] Envanterden yiyebilirsin.', 'reward');
+    void persistIfUser(res.profile);
+  };
+
+  const handleEatFood = (foodId: FoodId) => {
+    const res = consumeFoodItem(profile, foodId);
+    if (!res.success) {
+      pushToast(res.reason || 'Bu yemekten envanterde yok.', 'danger');
+      return;
+    }
+    setProfile(res.profile);
+    engineRef.current?.applyProfile(res.profile, false);
+    engineRef.current?.activateFoodBuff(foodId);
+    void persistIfUser(res.profile);
+  };
+
+  const handleBuyShip = (shipId: ShipId) => {
+    const res = buyHarborShip(profile, shipId);
+    if (!res.success) {
+      pushToast(res.reason || 'Gemi satın alınamadı.', 'danger');
+      return;
+    }
+    setProfile(res.profile);
+    engineRef.current?.applyProfile(res.profile, false);
+    soundEngine.playShipBell();
+    pushToast(`${SHIP_BY_ID[shipId].nameTr} satın alındı! Denize Açıl diyerek yola çıkabilirsin.`, 'reward');
+    void persistIfUser(res.profile);
+  };
+
+  const handleSelectShip = (shipId: ShipId) => {
+    const res = buyHarborShip(profile, shipId);
+    if (res.success) {
+      setProfile(res.profile);
+      engineRef.current?.applyProfile(res.profile, false);
+      pushToast(`${SHIP_BY_ID[shipId].nameTr} aktif gemin seçildi.`, 'info');
+      void persistIfUser(res.profile);
+    }
+  };
+
+  const handleLaunchShip = (shipId: ShipId) => {
+    const nextProf: PlayerProfileData =
+      profile.activeShipId === shipId ? profile : { ...profile, activeShipId: shipId };
+    if (nextProf !== profile) {
+      setProfile(nextProf);
+      engineRef.current?.applyProfile(nextProf, false);
+    }
+    setHarborOpen(false);
+    engineRef.current?.launchFromHarbor(shipId);
   };
 
   const handleSwitchRoom = (newRoomRaw: string) => {
@@ -574,13 +1196,20 @@ export default function App() {
       const { profile: existing } = await loadOrCreatePlayerProfile(
         user,
         profile.displayName,
-        profile.tunicColor
+        profile.tunicColor,
+        profile.playerClass
       );
-      // Merge current guest session progress if higher than brand new account
       const merged: PlayerProfileData = {
         ...existing,
         displayName: profile.displayName,
-        tunicColor: profile.tunicColor,
+        playerClass: profile.playerClass,
+        tunicColor: getClassColor(profile.playerClass),
+        classWeaponUnlocked: existing.classWeaponUnlocked || profile.classWeaponUnlocked,
+        desertArenaProgress: Math.max(
+          existing.desertArenaProgress,
+          profile.desertArenaProgress
+        ),
+        hasHorse: existing.hasHorse || profile.hasHorse,
         level: Math.max(existing.level, profile.level),
         gold: Math.max(existing.gold, profile.gold),
         swordTier: Math.max(existing.swordTier, profile.swordTier),
@@ -639,12 +1268,26 @@ export default function App() {
           toasts={toasts}
           onOpenUpgrade={() => {
             setFriendsOpen(false);
+            setInventoryOpen(false);
+            setTavernOpen(false);
+            setHarborOpen(false);
             setUpgradeOpen(true);
+          }}
+          onOpenInventory={() => {
+            setFriendsOpen(false);
+            setUpgradeOpen(false);
+            setTavernOpen(false);
+            setHarborOpen(false);
+            setInventoryOpen(true);
           }}
           onOpenFriends={() => {
             setUpgradeOpen(false);
+            setInventoryOpen(false);
+            setTavernOpen(false);
+            setHarborOpen(false);
             setFriendsOpen(true);
           }}
+          onCycleWeather={() => engineRef.current?.cycleWeather()}
           onToggleMute={() => {
             setMuted((prev) => {
               const next = !prev;
@@ -653,9 +1296,53 @@ export default function App() {
             });
           }}
           onPause={() => setGameState('paused')}
+          onInteract={() => engineRef.current?.triggerContextInteract()}
           onAttackLight={() => engineRef.current?.triggerLocalAttack(false)}
           onAttackHeavy={() => engineRef.current?.triggerLocalAttack(true)}
           onDash={() => engineRef.current?.triggerDash()}
+          onToggleMount={() => engineRef.current?.toggleMountHorse()}
+          onSummonHorse={() => engineRef.current?.summonHorse()}
+          onToggleBoardShip={() => engineRef.current?.toggleBoardShip()}
+          onToggleCameraMode={() => engineRef.current?.toggleCameraMode()}
+        />
+      )}
+
+      {/* Inventory Modal (Weapons, Armors, 10 Foods) */}
+      {gameState === 'playing' && inventoryOpen && (
+        <InventoryModal
+          profile={profile}
+          activeBuffs={hud.activeBuffs}
+          onBuyWeapon={handleBuyWeapon}
+          onEquipWeapon={handleEquipWeapon}
+          onBuyArmor={handleBuyArmor}
+          onEquipArmor={handleEquipArmor}
+          onEatFood={handleEatFood}
+          onClose={() => setInventoryOpen(false)}
+        />
+      )}
+
+      {/* Town Tavern Dining Hall Modal (10 Unique Buff Foods) */}
+      {gameState === 'playing' && tavernOpen && (
+        <TavernModal
+          profile={profile}
+          onBuyFood={handleBuyFood}
+          onClose={() => setTavernOpen(false)}
+        />
+      )}
+
+      {/* Main Island Ocean Harbor Sailor Modal (2 Drivable Ships) */}
+      {gameState === 'playing' && harborOpen && (
+        <HarborModal
+          profile={profile}
+          shipHp={hud.shipHp}
+          shipMaxHp={hud.shipMaxHp}
+          convoyTier={hud.convoyTier}
+          convoyGoldNext={hud.convoyGoldNext}
+          onBuyShip={handleBuyShip}
+          onSelectShip={handleSelectShip}
+          onLaunchShip={handleLaunchShip}
+          onRepairShip={() => engineRef.current?.repairPlayerShip()}
+          onClose={() => setHarborOpen(false)}
         />
       )}
 
@@ -663,8 +1350,10 @@ export default function App() {
       {gameState === 'playing' && upgradeOpen && (
         <UpgradeModal
           profile={profile}
+          inTown={hud.inSafeZone}
           nearCampfire={hud.nearCampfire}
           onUpgrade={handleUpgrade}
+          onBuyHorse={handleBuyHorse}
           onHealAtCampfire={() => {
             engineRef.current?.healFull();
             pushToast('Can ve enerji tamamen yenilendi!', 'info');
@@ -720,6 +1409,9 @@ export default function App() {
             void persistIfUser(profile);
             mpRef.current?.disconnect();
             setUpgradeOpen(false);
+            setInventoryOpen(false);
+            setTavernOpen(false);
+            setHarborOpen(false);
             setFriendsOpen(false);
             setGameState('title');
           }}

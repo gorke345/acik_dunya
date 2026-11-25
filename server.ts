@@ -20,6 +20,7 @@ export interface ServerPlayer {
   level: number;
   swordTier: number;
   armorTier: number;
+  weaponKind: 'sword' | 'mace' | 'bow' | 'spear';
   attackPower: number;
   defense: number;
   x: number;
@@ -57,6 +58,7 @@ function serializePlayer(p: ServerPlayer) {
     level: p.level,
     swordTier: p.swordTier,
     armorTier: p.armorTier,
+    weaponKind: p.weaponKind,
     x: p.x,
     y: p.y,
     z: p.z,
@@ -133,8 +135,14 @@ async function startServer() {
         }
         const room = rooms.get(roomCode)!;
 
-        const maxHp = Math.max(80, Math.min(2000, Number(data.maxHp) || 100));
+        const maxHp = Math.max(80, Math.min(25000, Number(data.maxHp) || 100));
         const hp = Math.max(1, Math.min(maxHp, Number(data.hp) || maxHp));
+        const validWeapons = ['sword', 'mace', 'bow', 'spear'] as const;
+        const weaponKind =
+          typeof data.weaponKind === 'string' &&
+          (validWeapons as readonly string[]).includes(data.weaponKind)
+            ? (data.weaponKind as ServerPlayer['weaponKind'])
+            : 'sword';
 
         currentPlayer = {
           id,
@@ -146,16 +154,17 @@ async function startServer() {
           tunicColor:
             typeof data.tunicColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(data.tunicColor)
               ? data.tunicColor
-              : '#c43b3b',
+              : '#2b74c7',
           isGuest: Boolean(data.isGuest),
-          level: Math.max(1, Math.min(99, Number(data.level) || 1)),
+          level: Math.max(1, Math.min(500, Number(data.level) || 1)),
           swordTier: Math.max(1, Math.min(10, Number(data.swordTier) || 1)),
           armorTier: Math.max(1, Math.min(10, Number(data.armorTier) || 1)),
-          attackPower: Math.max(10, Math.min(500, Number(data.attackPower) || 16)),
-          defense: Math.max(0, Math.min(300, Number(data.defense) || 4)),
+          weaponKind,
+          attackPower: Math.max(8, Math.min(3500, Number(data.attackPower) || 16)),
+          defense: Math.max(0, Math.min(1500, Number(data.defense) || 4)),
           x: Number(data.x) || 0,
           y: Number(data.y) || 1.15,
-          z: Number(data.z) || 18,
+          z: Number(data.z) || 12,
           yaw: Number(data.yaw) || 0,
           hp,
           maxHp,
@@ -200,15 +209,15 @@ async function startServer() {
       if (!room) return;
 
       if (type === 'state') {
-        currentPlayer.x = Math.max(-130, Math.min(130, Number(data.x) || currentPlayer.x));
-        currentPlayer.y = Math.max(-10, Math.min(60, Number(data.y) || currentPlayer.y));
-        currentPlayer.z = Math.max(-130, Math.min(130, Number(data.z) || currentPlayer.z));
+        currentPlayer.x = Math.max(-310, Math.min(310, Number(data.x) || currentPlayer.x));
+        currentPlayer.y = Math.max(-10, Math.min(80, Number(data.y) || currentPlayer.y));
+        currentPlayer.z = Math.max(-310, Math.min(310, Number(data.z) || currentPlayer.z));
         currentPlayer.yaw = Number(data.yaw) || 0;
         if (typeof data.anim === 'string') {
           currentPlayer.anim = data.anim as ServerPlayer['anim'];
         }
         if (typeof data.level === 'number') {
-          currentPlayer.level = Math.max(1, Math.min(99, Math.round(data.level)));
+          currentPlayer.level = Math.max(1, Math.min(500, Math.round(data.level)));
         }
         if (typeof data.swordTier === 'number') {
           currentPlayer.swordTier = Math.max(1, Math.min(10, Math.round(data.swordTier)));
@@ -216,14 +225,23 @@ async function startServer() {
         if (typeof data.armorTier === 'number') {
           currentPlayer.armorTier = Math.max(1, Math.min(10, Math.round(data.armorTier)));
         }
+        if (
+          typeof data.weaponKind === 'string' &&
+          (data.weaponKind === 'sword' ||
+            data.weaponKind === 'mace' ||
+            data.weaponKind === 'bow' ||
+            data.weaponKind === 'spear')
+        ) {
+          currentPlayer.weaponKind = data.weaponKind;
+        }
         if (typeof data.attackPower === 'number') {
-          currentPlayer.attackPower = Math.max(10, Math.min(500, data.attackPower));
+          currentPlayer.attackPower = Math.max(8, Math.min(3500, data.attackPower));
         }
         if (typeof data.defense === 'number') {
-          currentPlayer.defense = Math.max(0, Math.min(300, data.defense));
+          currentPlayer.defense = Math.max(0, Math.min(1500, data.defense));
         }
         if (typeof data.maxHp === 'number') {
-          currentPlayer.maxHp = Math.max(80, Math.min(2000, Math.round(data.maxHp)));
+          currentPlayer.maxHp = Math.max(80, Math.min(25000, Math.round(data.maxHp)));
         }
         if (typeof data.hp === 'number') {
           currentPlayer.hp = Math.max(0, Math.min(currentPlayer.maxHp, Math.round(data.hp)));

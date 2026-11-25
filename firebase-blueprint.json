@@ -2,7 +2,7 @@
   "entities": {
     "PlayerProfile": {
       "title": "PlayerProfile",
-      "description": "Persistent open-world PvP character save record for an authenticated player.",
+      "description": "Persistent open-world ocean archipelago PvP character save record for an authenticated player.",
       "type": "object",
       "properties": {
         "uid": {
@@ -25,9 +25,30 @@
           "maxLength": 7,
           "pattern": "^#[0-9a-fA-F]{6}$"
         },
+        "playerClass": {
+          "type": "string",
+          "description": "Selected class (guardian, archer, lancer, bomber, mage, assassin, fishman, yeti)",
+          "enum": ["guardian", "archer", "lancer", "bomber", "mage", "assassin", "fishman", "yeti", "berserker"]
+        },
+        "classWeaponUnlocked": {
+          "type": "boolean",
+          "description": "Whether the class signature weapon quest has been completed"
+        },
+        "yetiRuneUnlocked": {
+          "type": "boolean",
+          "description": "Whether the 5x Yeti Rune from the Lv.1000 North Pole Giant Yeti has been unlocked"
+        },
+        "desertArenaProgress": {
+          "type": "integer",
+          "description": "Highest Desert Arena wave cleared (0 to 5)"
+        },
+        "hasHorse": {
+          "type": "boolean",
+          "description": "Whether the player has purchased the mount horse from the Starter Town stable"
+        },
         "level": {
           "type": "integer",
-          "description": "Character level (1-99)"
+          "description": "Character level (1-1200)"
         },
         "xp": {
           "type": "integer",
@@ -35,7 +56,7 @@
         },
         "gold": {
           "type": "integer",
-          "description": "Gold currency earned from PvP and exploration"
+          "description": "Gold currency earned from PvP, naval raids, and exploration"
         },
         "swordTier": {
           "type": "integer",
@@ -59,15 +80,52 @@
         },
         "discoveredBiomes": {
           "type": "array",
-          "description": "List of discovered biome IDs (max 10)"
+          "description": "List of discovered biome IDs (max 16)"
+        },
+        "ownedWeapons": {
+          "type": "array",
+          "description": "Owned weapon IDs in inventory (max 18)"
+        },
+        "equippedWeaponId": {
+          "type": "string",
+          "description": "Currently equipped weapon ID",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "ownedArmors": {
+          "type": "array",
+          "description": "Owned armor IDs in inventory (max 12)"
+        },
+        "equippedArmorId": {
+          "type": "string",
+          "description": "Currently equipped armor ID",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "foodInventory": {
+          "type": "object",
+          "description": "Map of owned tavern food IDs to quantities (max 10 keys)"
+        },
+        "ownedShips": {
+          "type": "array",
+          "description": "Owned harbor ship IDs (max 4)"
+        },
+        "activeShipId": {
+          "type": "string",
+          "description": "Selected active ship ID or empty string",
+          "maxLength": 16
+        },
+        "convoyTier": {
+          "type": "integer",
+          "description": "Current naval convoy escalation tier (1 to 10)"
         },
         "lastX": {
           "type": "number",
-          "description": "Last saved world X coordinate"
+          "description": "Last saved world X coordinate (-1900 to 1900)"
         },
         "lastZ": {
           "type": "number",
-          "description": "Last saved world Z coordinate"
+          "description": "Last saved world Z coordinate (-1900 to 1900)"
         },
         "createdAt": {
           "type": "string",
